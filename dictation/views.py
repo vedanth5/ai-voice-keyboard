@@ -3,6 +3,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from openai import OpenAI
 import os
+import json
 
 
 # Initialize OpenAI client
@@ -27,6 +28,33 @@ def detect_command(text):
 
     return {"action": "none"}
 
+def detect_command_with_ai(text):
+    prompt = f"""
+    You are an AI assistant that detects user intent.
+
+    Convert the following sentence into a JSON command.
+
+    Possible actions:
+    - delete_last_sentence
+    - new_paragraph
+    - make_formal
+    - none
+
+    Only return JSON like:
+    {{"action": "..." }}
+
+    Sentence:
+    {text}
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    result = response.choices[0].message.content.strip()
+
+    return result
 
 # 🔹 AI Transcription Cleanup Endpoint
 @api_view(['POST'])
@@ -46,6 +74,20 @@ def transcribe(request):
                 "type": "command",
                 "action": command["action"]
             })
+
+        # AI-based command detection
+        command_result = detect_command_with_ai(raw_text)
+
+        try:
+            command_json = json.loads(command_result)
+        except:
+            command_json = {"action": "none"}
+
+        if command_json.get("action") != "none":
+            return Response({
+                "type": "command",
+                "action": command_json["action"]
+            })  
 
         # Otherwise → clean text 
         prompt = f"Fix grammar and punctuation:\n{raw_text}"
