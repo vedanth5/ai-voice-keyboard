@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from openai import OpenAI
 import os
 import json
+import re
+from rapidfuzz import fuzz
 
 
 # Initialize OpenAI client
@@ -14,38 +16,67 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 def test(request):
     return JsonResponse({"message": "working"})
 
+INTENTS = {
+    "delete_last_sentence": [
+        "delete last sentence",
+        "remove last sentence",
+        "delete previous sentence",
+        "remove previous line",
+        "undo last sentence"
+    ],
+    "new_line": [
+        "go to next line",
+        "new line",
+        "start new line"
+    ],
+    "new_paragraph": [
+        "new paragraph"
+    ],
+    "make_formal": [
+        "make it formal"
+    ]
+}
+
 def detect_command(text):
-    text = text.lower()
+    text = normalize(text)
 
-    if "delete last sentence" in text:
-        return {"action": "delete_last_sentence"}
+    best_match = None
+    highest_score = 0
 
-    elif "new paragraph" in text:
-        return {"action": "new_paragraph"}
+    for action, phrases in INTENTS.items():
+        for phrase in phrases:
+            score = fuzz.partial_ratio(text, phrase)
 
-    elif "make it formal" in text:
-        return {"action": "make_formal"}
+            if score > highest_score:
+                highest_score = score
+                best_match = action
+
+    if highest_score > 75:  # threshold
+        return {"action": best_match}
 
     return {"action": "none"}
 
+def normalize(text):
+    text = text.lower()
+    text = re.sub(r'[^a-z0-9\s]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+
 def detect_command_with_ai(text):
     prompt = f"""
-    You are an AI assistant that detects user intent.
+Return ONLY valid JSON. No explanation.
 
-    Convert the following sentence into a JSON command.
+Format:
+{{"action": "one_of_the_actions"}}
 
-    Possible actions:
-    - delete_last_sentence
-    - new_paragraph
-    - make_formal
-    - none
+Actions:
+delete_last_sentence, new_line, new_paragraph, make_formal, none
 
-    Only return JSON like:
-    {{"action": "..." }}
-
-    Sentence:
-    {text}
-    """
+Sentence:
+{text}
+"""
 
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
